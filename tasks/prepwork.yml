@@ -1,0 +1,54 @@
+---
+
+- name: gather facts
+  ansible.builtin.setup:
+    gather_subset: 
+      - "!all"
+      - "!any"
+      - network
+
+- name: prep hostentries
+  ansible.builtin.set_fact: 
+    hostentries:  "{ 'ipaddress':'{{hostvars[inventory_hostname]['ansible_eth1']['ipv4']['address']}}', 'hostname':'{{inventory_hostname}}' }"
+
+- name: prepare a etc/host blockinline chunk
+  ansible.builtin.lineinfile:
+    path: templates/hosts.tmp
+    regexp: "^{{item.ipaddress}}"
+    line: "{{item['ipaddress']}} {{ item['hostname']}}"
+  delegate_to: localhost
+  with_items:
+    - "{{ hostentries }}"
+
+- name: update DNS host entries
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    backup: yes
+    marker: "# <-- #{mark} THIS IS UPDATED BY ANSIBLE PLAYBOOK FOR KUBERNETES -->"
+    block: "{{ lookup('file', 'templates/hosts.tmp') }}"
+
+- name: disable SWAP in fstab 
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^(.+?\sswap\s+swap\s+.*)$'
+    replace: '# \1'
+
+- name: touch k8s.conf for modprobe.d 
+  ansible.builtin.file:
+    dest: "/etc/modules-load.d/k8s.conf"
+    state: touch
+
+- name: start netfilter for bridging
+  ansible.builtin.lineinfile:
+    path: "/etc/modules-load.d/k8s.conf"
+    regex: "^br_netfilter"
+    line: "br_netfilter"
+
+- name: rebooting the host
+  ansible.builtin.reboot:
+  when: node_reboot == true
+
+- name: wait for the machine to come back
+  ansible.builtin.wait_for:
+    port: 22
+    delay: 10

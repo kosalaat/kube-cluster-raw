@@ -1,2 +1,5 @@
 ---
 # tasks file for kube-cluster-raw
+- name: initial prep work
+  include_tasks: prepwork.yml
+
